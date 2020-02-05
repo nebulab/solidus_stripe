@@ -1,0 +1,2 @@
+<!-- insert_after '[data-hook="cart_container"]' -->
+<%= render partial: 'stripe_payment_request_button'

@@ -1,0 +1,152 @@
+<% if current_order.present? %>
+  <% payment_method = Spree::PaymentMethod.last %>
+
+  <div id="payment-request" style="clear:both; margin: 130px 0;">
+    <div id="payment-request-button"></div>
+
+    <%= form_tag update_checkout_path(:payment), method: :patch, id: "payment_method_#{payment_method.id}" do %>
+      <%= hidden_field_tag "order[payments_attributes][][payment_method_id]", payment_method.id %>
+
+      <div id="card-errors" class='errorExplanation' role="alert" style="display: none"></div>
+    <% end %>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+
+  <script>
+    Spree.stripePaymentMethod = $('#payment_method_' + <%= payment_method.id %>);
+
+    var stripe = Stripe("<%= payment_method.preferred_publishable_key %>");
+    var elements = stripe.elements({locale: 'en'});
+
+    var authToken = $('meta[name="csrf-token"]').attr('content');
+    var paymentMethodId = <%= payment_method.id %>;
+
+    function setUpPaymentRequest(requestShipping) {
+      var paymentRequest = stripe.paymentRequest({
+        country: '<%= payment_method.preferred_stripe_country %>',
+        currency: '<%= current_order.currency.downcase %>',
+        total: {
+          label: 'Payment for order <%= current_order.number %>',
+          amount: <%= (current_order.item_total * 100).to_i %>,
+        },
+        requestPayerName: true,
+        requestPayerEmail: true,
+        requestShipping: requestShipping,
+        shippingOptions: [
+        ]
+      });
+
+      var prButton = elements.create('paymentRequestButton', {
+        paymentRequest: paymentRequest
+      });
+
+      paymentRequest.canMakePayment().then(function(result) {
+        if (result) {
+          prButton.mount('#payment-request-button');
+        } else {
+          document.getElementById('payment-request-button').style.display = 'none';
+        }
+      });
+
+      return paymentRequest;
+    };
+
+    var paymentRequest = setUpPaymentRequest(true);
+  </script>
+
+  <script>
+    $(function() {
+      var errorElement = $('#card-errors');
+
+      paymentRequest.on('shippingaddresschange', function(ev) {
+        fetch('/stripe/shipping_rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            authenticity_token: authToken,
+            shipping_address: ev.shippingAddress
+          })
+        }).then(function(response) {
+          return response.json();
+        }).then(function(result) {
+          if (result.error) {
+            showError(result.error);
+          } else {
+            ev.updateWith({
+              status: 'success',
+              shippingOptions: result.shipping_options
+            });
+          }
+        });
+      });
+
+      paymentRequest.on('paymentmethod', function(result) {
+        fetch('/stripe/shipping_address', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shipping_address: result.shippingAddress,
+            shipping_options: result.shippingOptions,
+            authenticity_token: authToken
+          })
+        }).then(function(response) {
+          response.json().then(function(json) {
+            handleServerResponse(json, result);
+          })
+        });
+      });
+
+      function handleServerResponse(response, payment) {
+        if (response.error) {
+            showError(response.error);
+            completePaymentRequest(payment, 'fail');
+        } else if (response.requires_action) {
+          stripe.handleCardAction(
+            response.stripe_payment_intent_client_secret
+          ).then(function(result) {
+            if (result.error) {
+              showError(result.error);
+            } else {
+              fetch('/stripe/confirm_payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  spree_payment_method_id: paymentMethodId,
+                  stripe_payment_intent_id: payment.paymentIntent.id,
+                  authenticity_token: authToken
+                })
+              }).then(function(confirmResult) {
+                return confirmResult.json();
+              }).then(handleServerResponse);
+            }
+          });
+        } else {
+          completePaymentRequest(payment, 'success');
+          stripeTokenHandler(payment.paymentMethod);
+          Spree.stripePaymentMethod.submit();
+        }
+      }
+
+      function completePaymentRequest(payment, state) {
+        if (payment && typeof payment.complete === 'function') {
+          payment.complete(state);
+        }
+      }
+
+      function stripeTokenHandler(token) {
+        var baseSelector = `<input type='hidden' class='stripeToken' name='payment_source[${paymentMethodId}]`;
+
+        Spree.stripePaymentMethod.append(`${baseSelector}[gateway_payment_profile_id]' value='${token.id}'/>`);
+        Spree.stripePaymentMethod.append(`${baseSelector}[last_digits]' value='${token.card.last4}'/>`);
+        Spree.stripePaymentMethod.append(`${baseSelector}[month]' value='${token.card.exp_month}'/>`);
+        Spree.stripePaymentMethod.append(`${baseSelector}[year]' value='${token.card.exp_year}'/>`);
+      };
+
+      function showError(error) {
+        errorElement.text(error).show();
+      };
+    })
+
+  </script>
+<% end %>
