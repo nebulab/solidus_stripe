@@ -15,11 +15,19 @@ commands:
       - checkout
       - browser-tools/install-chrome
       - run:
-          name: 'Cleanup & check rails version'
+          name: Install libvips
+          command: |
+            sudo apt-get update
+            sudo apt-get install -yq libvips-dev
+      - run:
+          name: 'Update Rubygems'
           command: |
             sudo gem update --system --no-document
             gem install bundler --no-document
             gem environment path
+      - run:
+          name: 'Store tool versions'
+          command: |
             rm -rf /tmp/.tool-versions
             ruby -v >> /tmp/.tool-versions
             gem search -eq rails >> /tmp/.tool-versions # get the latest rails from rubygems
