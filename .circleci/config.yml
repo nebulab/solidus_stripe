@@ -15,25 +15,37 @@ commands:
       - checkout
       - browser-tools/install-chrome
       - run:
+          name: 'Cleanup & check rails version'
+          command: |
+            sudo gem update --system --no-document
+            gem install bundler --no-document
+            gem environment path
+            rm -rf /tmp/.tool-versions
+            ruby -v >> /tmp/.tool-versions
+            gem search -eq rails >> /tmp/.tool-versions # get the latest rails from rubygems
+            gem search -eq solidus >> /tmp/.tool-versions # get the latest solidus from rubygems
+            cat /tmp/.tool-versions
+      - restore_cache:
+          keys:
+            - solidus-stripe-gems-v1-{{ checksum "/tmp/.tool-versions" }}
+            - solidus-stripe-gems-v1-
+      - run:
           name: 'Install gems'
           command: |
             bundle install
       - run:
           name: 'Install dummy app'
           command: bin/dummy-app
+      - save_cache:
+          key: solidus-stripe-gems-v1-{{ checksum "/tmp/.tool-versions" }}
+          paths:
+            - /home/circleci/.rubygems
       - run:
           name: 'Runs specs'
           command: |
-            sudo gem update --system
-            gem install bundler
-            bin/dummy-app
             bin/rspec --format progress --format RspecJunitFormatter --out ../test-results/results.xml
           environment:
             FRONTEND: starter
-      - run:
-          name: 'Clean up'
-          command: rm -rf sandbox
-          when: always
 
 jobs:
   run-specs-with-postgres:
