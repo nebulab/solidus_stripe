@@ -14,16 +14,26 @@ commands:
     steps:
       - checkout
       - browser-tools/install-chrome
-      - solidusio_extensions/dependencies
-      - solidusio_extensions/test-branch:
-          branch: master
+      - run:
+          name: 'Install gems'
           command: |
-            export FRONTEND=starter
+            bundle install
+      - run:
+          name: 'Install dummy app'
+          command: bin/dummy-app
+      - run:
+          name: 'Runs specs'
+          command: |
             sudo gem update --system
             gem install bundler
             bin/dummy-app
-            bin/rspec
-      - solidusio_extensions/store-test-results
+            bin/rspec --format progress --format RspecJunitFormatter --out ../test-results/results.xml
+          environment:
+            FRONTEND: starter
+      - run:
+          name: 'Clean up'
+          command: rm -rf sandbox
+          when: always
 
 jobs:
   run-specs-with-postgres:
@@ -53,17 +63,17 @@ jobs:
       - solidusio_extensions/lint-code
 
 workflows:
-  "Run specs on supported Solidus versions":
+  'Run specs on supported Solidus versions':
     jobs:
       - run-specs-with-postgres
       - run-specs-with-mysql
       - run-specs-with-sqlite
       - lint-code
 
-  "Weekly run specs against master":
+  'Weekly run specs against master':
     triggers:
       - schedule:
-          cron: "0 0 * * 4" # every Thursday
+          cron: '0 0 * * 4' # every Thursday
           filters:
             branches:
               only:
